@@ -55,6 +55,8 @@ app.get('/api/health', (_req, res) => res.json({
   database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
 }));
 
+app.get('/api/meta', (_req, res) => res.json({ rounds: GAME_ROUNDS, difficulties: ['easy', 'normal', 'hard'] }));
+
 app.post('/api/auth/register', authLimiter, requireDb, async (req, res, next) => {
   try {
     const username = String(req.body?.username || '').trim();
