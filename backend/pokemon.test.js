@@ -24,3 +24,14 @@ test('PokéAPI network failures become a controlled availability error', async (
   }
 });
 
+test('PokéAPI timeout failures return a clear retryable error', async () => {
+  const originalFetch = globalThis.fetch;
+  clearPokemonCache();
+  globalThis.fetch = async () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); };
+  try {
+    await assert.rejects(getPokemon(27), (error) => error instanceof PokemonApiError && error.status === 503 && /timed out/i.test(error.message));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
