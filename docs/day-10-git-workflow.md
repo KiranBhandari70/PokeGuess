@@ -26,4 +26,4 @@ Short-lived feature branches isolate work and give a pull request a focused diff
 
 ## Evidence completion
 
-The PR for this document should be checked before merge. Its merge and the release tag are recorded in GitHub history. The repository is currently using MongoDB as requested; this differs from the assignment note's PostgreSQL suggestion and should be explained as the selected database implementation.
+Pull request [#2](https://github.com/KiranBhandari70/PokeGuess/pull/2) is the review record for this document; its CI must pass before merge. The release tag should point at the reviewed merge commit. MongoDB is the selected database per the student's stack preference, while the brief names PostgreSQL for Day 7; explain this as a deliberate stack adaptation and confirm the MongoDB deployment evidence.
