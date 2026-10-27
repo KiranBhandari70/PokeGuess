@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import './styles.css';
+import Leaderboard from './Leaderboard.jsx';
 
 async function api(url, options = {}) {
   const response = await fetch(url, {
@@ -122,7 +123,7 @@ function App() {
           <button type="button" className="link-button" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Create account' : 'Back to login'}</button>
         </form>}
     </header>
-    <span className="eyebrow">POKÉGUESS · DAY 7</span>
+    <span className="eyebrow">POKÉGUESS · DAY 8</span>
     <h1>Who's that <em>Pokémon?</em></h1>
     <p>Study the silhouette, choose an answer, and keep your streak alive.</p>
     <label className="difficulty">DIFFICULTY
@@ -142,6 +143,7 @@ function App() {
       </div>{!feedback ? <button className="primary" type="submit" disabled={!selected || busy}>{busy ? 'Checking…' : 'Submit answer'} <span>→</span></button> : feedback.savePending ? <button className="primary" type="button" onClick={retrySave} disabled={busy}>{busy ? 'Saving…' : 'Retry saving score'} <span>↻</span></button> : <button className="primary" type="button" onClick={nextRound} disabled={busy}>{feedback.completed ? 'New game' : round.nextQuestion ? 'Next Pokémon' : 'Start a new game'} <span>→</span></button>}</form>
     </>}
     {historyOpen && user && <section className="history"><h2>Recent games <small>Personal best: {bestScore} PTS</small></h2>{history.length ? history.map((item) => <p key={item._id}>{item.correct}/{item.rounds} correct · {item.difficulty} · {item.score} PTS</p>) : <p>No saved games yet.</p>}</section>}
+    <Leaderboard />
     {notice && <output aria-live="polite">{notice}</output>}
   </main>;
 }
