@@ -134,7 +134,7 @@ app.post('/api/game/:gameId/answer', async (req, res, next) => {
     try {
       game.question = await getQuestion(game.difficulty);
       res.json({ ...payload, nextQuestion: { image: game.question.image, options: game.question.options.map(({ name }) => name), round: game.round + 1 } });
-    } catch (error) {
+    } catch {
       payload.nextQuestionError = 'Your answer was saved, but the next Pokémon could not load. Start a new game to continue.';
       res.json(payload);
     }
@@ -166,6 +166,16 @@ app.get('/api/history', requireAuth, requireDb, async (req, res, next) => {
     const results = await Result.find({ user: req.session.userId }).sort({ createdAt: -1 }).limit(20).lean();
     const best = await Result.findOne({ user: req.session.userId }).sort({ score: -1 }).lean();
     res.json({ results, bestScore: best?.score || 0 });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/leaderboard', requireDb, async (_req, res, next) => {
+  try {
+    const rows = await Result.aggregate([
+      { $group: { _id: '$user', username: { $first: '$username' }, bestScore: { $max: '$score' }, games: { $sum: 1 }, totalScore: { $sum: '$score' } } },
+      { $sort: { bestScore: -1, totalScore: -1 } }, { $limit: 10 },
+    ]);
+    res.json({ leaderboard: rows.map((row, index) => ({ rank: index + 1, username: row.username, bestScore: row.bestScore, games: row.games })) });
   } catch (error) { next(error); }
 });
 
