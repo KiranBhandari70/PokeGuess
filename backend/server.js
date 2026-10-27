@@ -10,7 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { getQuestion, PokemonApiError } from './pokemon.js';
 import { GAME_ROUNDS, scoreAnswer } from './game-logic.js';
-import { User } from './models.js';
+import { User, Result } from './models.js';
+import { persistGameResult } from './result-service.js';
 
 const app = express();
 const events = new EventEmitter();
@@ -43,6 +44,11 @@ app.use(session({
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false });
 const requireDb = (_req, res, next) => mongoose.connection.readyState === 1 ? next() : res.status(503).json({ error: 'Database is not connected' });
 const requireAuth = (req, res, next) => req.session.userId ? next() : res.status(401).json({ error: 'Please sign in first' });
+
+events.on('ACHIEVEMENT_UNLOCKED', ({ userId, achievement }) => {
+  User.updateOne({ _id: userId }, { $addToSet: { achievements: achievement } })
+    .catch((error) => console.error('Could not save achievement:', error.message));
+});
 
 app.get('/api/health', (_req, res) => res.json({
   status: 'ok', service: 'pokeguess-api',
@@ -97,7 +103,7 @@ app.post('/api/game/start', async (req, res, next) => {
     const difficulty = ['easy', 'normal', 'hard'].includes(req.body?.difficulty) ? req.body.difficulty : 'normal';
     const question = await getQuestion(difficulty);
     const game = {
-      id: randomUUID(), userId: req.session.userId || null, round: 0, score: 0, correct: 0, streak: 0, bestStreak: 0,
+      id: randomUUID(), userId: req.session.userId || null, round: 0, rounds: GAME_ROUNDS, score: 0, correct: 0, streak: 0, bestStreak: 0,
       difficulty, answers: new Set(), completed: false, question,
     };
     games.set(game.id, game);
@@ -109,7 +115,7 @@ app.post('/api/game/start', async (req, res, next) => {
   } catch (error) { events.emit('POKEMON_LOAD_FAILED', { message: error.message }); next(error); }
 });
 
-app.post('/api/game/:gameId/answer', (req, res, next) => {
+app.post('/api/game/:gameId/answer', async (req, res, next) => {
   const game = games.get(req.params.gameId);
   if (!game) return res.status(404).json({ error: 'Game not found or expired' });
   if (game.userId && game.userId !== req.session.userId) return res.status(403).json({ error: 'This game belongs to another player' });
@@ -125,13 +131,42 @@ app.post('/api/game/:gameId/answer', (req, res, next) => {
   events.emit(outcome.correct ? 'CORRECT_GUESS' : 'WRONG_GUESS', { gameId: game.id, ...payload });
 
   if (!outcome.completed) {
-    return getQuestion(game.difficulty).then((question) => {
-      game.question = question;
-      res.json({ ...payload, nextQuestion: { image: question.image, options: question.options.map(({ name }) => name), round: game.round + 1 } });
-    }).catch((error) => res.json({ ...payload, nextQuestionError: error.message }));
+    try {
+      game.question = await getQuestion(game.difficulty);
+      res.json({ ...payload, nextQuestion: { image: game.question.image, options: game.question.options.map(({ name }) => name), round: game.round + 1 } });
+    } catch (error) {
+      payload.nextQuestionError = 'Your answer was saved, but the next Pokémon could not load. Start a new game to continue.';
+      res.json(payload);
+    }
+    return;
   }
+
   events.emit('GAME_COMPLETED', { gameId: game.id, userId: game.userId, score: game.score });
+  if (game.userId) {
+    try {
+      await persistGameResult(game, { User, Result });
+      payload.resultSaved = true;
+      const achievement = game.correct === GAME_ROUNDS ? 'perfect_game' : game.bestStreak >= 5 ? 'hot_streak' : null;
+      if (achievement) events.emit('ACHIEVEMENT_UNLOCKED', { userId: game.userId, achievement });
+    } catch { payload.savePending = true; }
+  }
   res.json(payload);
+});
+
+app.post('/api/game/:gameId/save', requireAuth, requireDb, async (req, res, next) => {
+  const game = games.get(req.params.gameId);
+  if (!game || !game.completed) return res.status(404).json({ error: 'Completed game not found' });
+  if (game.userId !== req.session.userId) return res.status(403).json({ error: 'This game belongs to another player' });
+  try { res.json(await persistGameResult(game, { User, Result })); }
+  catch (error) { next(error); }
+});
+
+app.get('/api/history', requireAuth, requireDb, async (req, res, next) => {
+  try {
+    const results = await Result.find({ user: req.session.userId }).sort({ createdAt: -1 }).limit(20).lean();
+    const best = await Result.findOne({ user: req.session.userId }).sort({ score: -1 }).lean();
+    res.json({ results, bestScore: best?.score || 0 });
+  } catch (error) { next(error); }
 });
 
 function publicUser(user) {
