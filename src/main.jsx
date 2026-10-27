@@ -14,6 +14,7 @@ async function api(url, options = {}) {
 
 function App() {
   const [round, setRound] = useState(null);
+  const [difficulty, setDifficulty] = useState('normal');
   const [selected, setSelected] = useState('');
   const [feedback, setFeedback] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -25,13 +26,12 @@ function App() {
     setFeedback(null);
     setSelected('');
     try {
-      setRound(await api('/api/game/start', { method: 'POST' }));
+      const game = await api('/api/game/start', { method: 'POST', body: JSON.stringify({ difficulty }) });
+      setRound({ ...game, score: 0, streak: 0 });
       setNotice('');
     } catch (error) {
       setNotice(`${error.message}. Please retry.`);
-    } finally {
-      setBusy(false);
-    }
+    } finally { setBusy(false); }
   }
 
   async function submitAnswer(event) {
@@ -41,25 +41,38 @@ function App() {
     try {
       const result = await api(`/api/game/${round.gameId}/answer`, {
         method: 'POST',
-        body: JSON.stringify({ answer: selected }),
+        body: JSON.stringify({ answer: selected, round: round.round }),
       });
       setFeedback(result);
-    } catch (error) {
-      setNotice(error.message);
-    } finally {
-      setBusy(false);
-    }
+      setRound((current) => ({ ...current, score: result.score, streak: result.streak, nextQuestion: result.nextQuestion, nextQuestionError: result.nextQuestionError }));
+    } catch (error) { setNotice(error.message); }
+    finally { setBusy(false); }
+  }
+
+  function nextRound() {
+    if (!round?.nextQuestion) return startRound();
+    setRound((current) => ({ ...current, ...current.nextQuestion, nextQuestion: null }));
+    setSelected('');
+    setFeedback(null);
+    setNotice('');
   }
 
   return <main>
-    <span className="eyebrow">POKÉGUESS · DAY 4</span>
+    <span className="eyebrow">POKÉGUESS · DAY 5</span>
     <h1>Who's that <em>Pokémon?</em></h1>
-    <p>Study the silhouette, choose an answer, and lock in your guess.</p>
+    <p>Study the silhouette, choose an answer, and keep your streak alive.</p>
+    <label className="difficulty">DIFFICULTY
+      <select value={difficulty} onChange={(event) => setDifficulty(event.target.value)} disabled={Boolean(round && !feedback)}>
+        <option value="easy">Easy</option><option value="normal">Normal</option><option value="hard">Hard</option>
+      </select>
+    </label>
     {!round ? <button className="primary" onClick={startRound} disabled={busy}>
-      {busy ? 'Loading…' : 'Start a round'} <span>→</span>
+      {busy ? 'Loading…' : 'Start a 10-round game'} <span>→</span>
     </button> : <>
+      <div className="game-top"><span>ROUND {round.round} / {round.rounds}</span><span>🔥 {round.streak} streak</span><b>{round.score} PTS</b></div>
+      <div className="progress"><span style={{ width: `${(round.round - 1) / round.rounds * 100}%` }} /></div>
       <section className="question" aria-label="Pokémon silhouette">
-        <img className={feedback ? 'pokemon-image revealed' : 'pokemon-image'} src={round.image} alt={feedback ? feedback.answer : 'Mystery Pokémon silhouette'} />
+        <img className={feedback?.correct ? 'pokemon-image revealed' : 'pokemon-image'} src={round.image} alt={feedback ? feedback.answer : 'Mystery Pokémon silhouette'} />
         <span className="caption">{feedback ? (feedback.correct ? 'Correct! Nice catch.' : `It was ${feedback.answer}.`) : 'WHO’S THAT POKÉMON?'}</span>
       </section>
       <form onSubmit={submitAnswer}>
@@ -71,8 +84,8 @@ function App() {
         </div>
         {!feedback ? <button className="primary" type="submit" disabled={!selected || busy}>
           {busy ? 'Checking…' : 'Submit answer'} <span>→</span>
-        </button> : <button className="primary" type="button" onClick={startRound} disabled={busy}>
-          New round <span>↻</span>
+        </button> : <button className="primary" type="button" onClick={nextRound} disabled={busy}>
+          {feedback.completed ? 'New game' : round.nextQuestion ? 'Next Pokémon' : 'Start a new game'} <span>→</span>
         </button>}
       </form>
     </>}
