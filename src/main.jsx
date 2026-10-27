@@ -23,6 +23,9 @@ function App() {
   const [user, setUser] = useState(null);
   const [authMode, setAuthMode] = useState('login');
   const [credentials, setCredentials] = useState({ username: '', password: '' });
+  const [history, setHistory] = useState([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [bestScore, setBestScore] = useState(0);
 
   useEffect(() => {
     api('/api/auth/me').then(({ user: current }) => setUser(current)).catch(() => {});
@@ -41,6 +44,15 @@ function App() {
     finally { setBusy(false); }
   }
 
+  async function loadHistory() {
+    try {
+      const data = await api('/api/history');
+      setHistory(data.results);
+      setBestScore(data.bestScore);
+      setHistoryOpen(true);
+    } catch (error) { setNotice(error.message); }
+  }
+
   async function submitAnswer(event) {
     event.preventDefault();
     if (!round || !selected || feedback || busy) return;
@@ -51,7 +63,19 @@ function App() {
       });
       setFeedback(result);
       setRound((current) => ({ ...current, score: result.score, streak: result.streak, nextQuestion: result.nextQuestion, nextQuestionError: result.nextQuestionError }));
+      if (result.completed && result.resultSaved && user) await loadHistory();
     } catch (error) { setNotice(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function retrySave() {
+    setBusy(true);
+    try {
+      await api(`/api/game/${round.gameId}/save`, { method: 'POST', body: '{}' });
+      setFeedback((current) => ({ ...current, savePending: false, resultSaved: true }));
+      setNotice('Your result was saved.');
+      if (user) await loadHistory();
+    } catch (error) { setNotice(`Your score is safe. ${error.message} Try saving again.`); }
     finally { setBusy(false); }
   }
 
@@ -81,6 +105,8 @@ function App() {
     try {
       await api('/api/auth/logout', { method: 'POST', body: '{}' });
       setUser(null);
+      setHistory([]);
+      setHistoryOpen(false);
       setNotice('Signed out successfully.');
     } catch (error) { setNotice(error.message); }
   }
@@ -88,7 +114,7 @@ function App() {
   return <main>
     <header className="identity">
       <span className="eyebrow">VIRTUAL TRAINER ID</span>
-      {user ? <div className="signed-in"><strong>{user.avatar} {user.username}</strong><span>Level {user.level}</span><button type="button" className="link-button" onClick={logout}>Log out</button></div> :
+      {user ? <div className="signed-in"><strong>{user.avatar} {user.username}</strong><span>Level {user.level}</span><button type="button" className="link-button" onClick={loadHistory}>History</button><button type="button" className="link-button" onClick={logout}>Log out</button></div> :
         <form className="auth-form" onSubmit={submitAuth}>
           <input aria-label="Username" autoComplete="username" minLength="3" maxLength="20" placeholder="Username" value={credentials.username} onChange={(event) => setCredentials({ ...credentials, username: event.target.value })} required />
           <input aria-label="Password" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} type="password" minLength="8" placeholder="Password" value={credentials.password} onChange={(event) => setCredentials({ ...credentials, password: event.target.value })} required />
@@ -96,7 +122,7 @@ function App() {
           <button type="button" className="link-button" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>{authMode === 'login' ? 'Create account' : 'Back to login'}</button>
         </form>}
     </header>
-    <span className="eyebrow">POKÉGUESS · DAY 6</span>
+    <span className="eyebrow">POKÉGUESS · DAY 7</span>
     <h1>Who's that <em>Pokémon?</em></h1>
     <p>Study the silhouette, choose an answer, and keep your streak alive.</p>
     <label className="difficulty">DIFFICULTY
@@ -113,8 +139,9 @@ function App() {
       </section>
       <form onSubmit={submitAnswer}><div className="answers">
         {round.options.map((name) => <button key={name} type="button" className={selected === name ? 'answer selected' : 'answer'} onClick={() => !feedback && setSelected(name)} disabled={Boolean(feedback) || busy}>{name}</button>)}
-      </div>{!feedback ? <button className="primary" type="submit" disabled={!selected || busy}>{busy ? 'Checking…' : 'Submit answer'} <span>→</span></button> : <button className="primary" type="button" onClick={nextRound} disabled={busy}>{feedback.completed ? 'New game' : round.nextQuestion ? 'Next Pokémon' : 'Start a new game'} <span>→</span></button>}</form>
+      </div>{!feedback ? <button className="primary" type="submit" disabled={!selected || busy}>{busy ? 'Checking…' : 'Submit answer'} <span>→</span></button> : feedback.savePending ? <button className="primary" type="button" onClick={retrySave} disabled={busy}>{busy ? 'Saving…' : 'Retry saving score'} <span>↻</span></button> : <button className="primary" type="button" onClick={nextRound} disabled={busy}>{feedback.completed ? 'New game' : round.nextQuestion ? 'Next Pokémon' : 'Start a new game'} <span>→</span></button>}</form>
     </>}
+    {historyOpen && user && <section className="history"><h2>Recent games <small>Personal best: {bestScore} PTS</small></h2>{history.length ? history.map((item) => <p key={item._id}>{item.correct}/{item.rounds} correct · {item.difficulty} · {item.score} PTS</p>) : <p>No saved games yet.</p>}</section>}
     {notice && <output aria-live="polite">{notice}</output>}
   </main>;
 }
